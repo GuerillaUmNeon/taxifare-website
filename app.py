@@ -2,16 +2,22 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
+import os
 
-'''
-# Taxi fare prediction
-'''
+API_URL = st.secrets["API_URL"]
+if not API_URL:
+    st.error("Missing API_URL environment variable")
+    st.stop()
 
-pickup_datetime = st.datetime_input("Select date and time")
-st.write(" ")
-st.write("Select your pickup and drop-off locations")
+st.set_page_config(
+    page_title="Taxi Fare Prediction",
+    page_icon="🚕",
+    layout="wide"
+)
 
-# New York default center
+st.title("🚕 Taxi Fare Prediction")
+st.caption("Choisissez une date, le nombre de passagers, puis cliquez sur 2 points sur la carte : pickup et drop-off.")
+
 NYC = [40.730610, -73.935242]
 
 if "points" not in st.session_state:
@@ -23,38 +29,90 @@ if "center" not in st.session_state:
 if "zoom" not in st.session_state:
     st.session_state.zoom = 10
 
-# Buttons
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Clear points"):
-        st.session_state.points = []
-with col2:
-    if st.button("Reset to New York"):
-        st.session_state.center = NYC
-        st.session_state.zoom = 10
-        st.session_state.points = []
+left, right = st.columns([1, 1.4], gap="large")
 
-# Build map
-m = folium.Map(location=st.session_state.center, zoom_start=st.session_state.zoom)
+with left:
+    with st.container():
+        st.subheader("Ride details")
 
-# Existing markers
-for i, (lat, lon) in enumerate(st.session_state.points, start=1):
-    folium.Marker(
-        [lat, lon],
-        tooltip=f"Point {i}",
-        popup=f"Point {i}: {lat:.6f}, {lon:.6f}",
-    ).add_to(m)
+        pickup_datetime = st.datetime_input("Pickup date and time")
 
-# Render map
-map_data = st_folium(
-    m,
-    width=700,
-    height=500,
-    key="map",
-    returned_objects=["last_clicked", "zoom", "center"]
-)
+        passenger_count = st.number_input(
+            "Passengers",
+            min_value=1,
+            max_value=4,
+            value=1,
+            step=1
+        )
 
-# Save view state
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Clear points", use_container_width=True):
+                st.session_state.points = []
+                st.rerun()
+        with c2:
+            if st.button("Reset map", use_container_width=True):
+                st.session_state.center = NYC
+                st.session_state.zoom = 10
+                st.session_state.points = []
+                st.rerun()
+
+        st.divider()
+        st.subheader("Selected points")
+
+        if len(st.session_state.points) >= 1:
+            lat1, lon1 = st.session_state.points[0]
+            st.success(f"Pickup: {lat1:.5f}, {lon1:.5f}")
+        else:
+            st.info("Pickup not selected yet")
+
+        if len(st.session_state.points) >= 2:
+            lat2, lon2 = st.session_state.points[1]
+            st.success(f"Drop-off: {lat2:.5f}, {lon2:.5f}")
+        else:
+            st.info("Drop-off not selected yet")
+
+        st.divider()
+
+        run_prediction = st.button("Estimate fare", type="primary", use_container_width=True)
+
+with right:
+    st.subheader("Map")
+    st.caption("Click once for pickup, click a second time for drop-off.")
+
+    m = folium.Map(location=st.session_state.center, zoom_start=st.session_state.zoom)
+
+    if len(st.session_state.points) >= 1:
+        folium.Marker(
+            st.session_state.points[0],
+            tooltip="Pickup",
+            popup="Pickup location",
+            icon=folium.Icon(color="green", icon="play", prefix="fa")
+        ).add_to(m)
+
+    if len(st.session_state.points) >= 2:
+        folium.Marker(
+            st.session_state.points[1],
+            tooltip="Drop-off",
+            popup="Drop-off location",
+            icon=folium.Icon(color="red", icon="stop", prefix="fa")
+        ).add_to(m)
+
+        folium.PolyLine(
+            locations=st.session_state.points,
+            color="#4F8BF9",
+            weight=4,
+            opacity=0.8
+        ).add_to(m)
+
+    map_data = st_folium(
+        m,
+        width=900,
+        height=520,
+        key="map",
+        returned_objects=["last_clicked", "zoom", "center"]
+    )
+
 if map_data:
     if map_data.get("center"):
         st.session_state.center = [
@@ -64,39 +122,50 @@ if map_data:
     if map_data.get("zoom"):
         st.session_state.zoom = map_data["zoom"]
 
-# Add up to 2 clicked points
 if map_data and map_data.get("last_clicked"):
     clicked = map_data["last_clicked"]
     new_point = (clicked["lat"], clicked["lng"])
 
-    if len(st.session_state.points) < 2:
-        if new_point not in st.session_state.points:
-            st.session_state.points.append(new_point)
-            st.rerun()
+    if len(st.session_state.points) < 2 and new_point not in st.session_state.points:
+        st.session_state.points.append(new_point)
+        st.rerun()
 
-# passenger_count = st.text_area("Number of passengers")
-passenger_count = st.number_input(
-    "Number of passengersr", value=1, placeholder="Type a number...", min_value=1, max_value=4
-)
-if st.button("Validate"):
-    if len(st.session_state.points) == 2:
+st.divider()
+
+result_col1, result_col2, result_col3 = st.columns([1, 1, 1])
+
+if run_prediction:
+    if len(st.session_state.points) != 2:
+        st.warning("Please select pickup and drop-off points on the map.")
+    else:
+        lat1, lon1 = st.session_state.points[0]
+        lat2, lon2 = st.session_state.points[1]
+
         params = {
-            "pickup_datetime": pickup_datetime,
-            "pickup_latitude": st.session_state.points[0][0],
-            "pickup_longitude": st.session_state.points[0][1],
-            "dropoff_latitude": st.session_state.points[1][0],
-            "dropoff_longitude": st.session_state.points[1][1],
-            "passenger_count": passenger_count
+            "pickup_datetime": str(pickup_datetime),
+            "pickup_latitude": lat1,
+            "pickup_longitude": lon1,
+            "dropoff_latitude": lat2,
+            "dropoff_longitude": lon2,
+            "passenger_count": passenger_count,
         }
 
-        response = requests.get("https://taxifare-690553104832.europe-west1.run.app/predict", params=params)
+        try:
+            response = requests.get(f"{API_URL}/predict", params=params, timeout=30)
 
-        if response.ok:
             if response.ok:
                 data = response.json()
-                fare = data["fare"]
-                st.write(f"Fare: ${round(fare, 2)}")
-        else:
-            st.error(f"API error: {response.status_code}")
-    else:
-        st.warning("Please fill all inputs")
+                fare = data.get("fare")
+
+                if fare is not None:
+                    with result_col2:
+                        st.metric("Estimated fare", f"${fare:.2f}")
+                else:
+                    st.error("The API response does not contain 'fare'.")
+                    st.json(data)
+            else:
+                st.error(f"API error: {response.status_code}")
+                st.text(response.text)
+
+        except requests.RequestException as e:
+            st.error(f"Request failed: {e}")
