@@ -89,7 +89,7 @@ if st.button("Validate"):
             "passenger_count": passenger_count
         }
 
-        response = requests.get("http://127.0.0.1:8000/predict", params=params)
+        response = requests.get("https://taxifare-690553104832.europe-west1.run.app/predict", params=params)
 
         if response.ok:
             if response.ok:
