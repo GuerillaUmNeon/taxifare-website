@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 st.title("🚕 Taxi Fare Prediction")
-st.caption("Choisissez une date, le nombre de passagers, puis cliquez sur 2 points sur la carte : pickup et drop-off.")
+st.caption("Select a date, the number of passengers, then click two points on the map: pickup and drop-off.")
 
 NYC = [40.730610, -73.935242]
 
